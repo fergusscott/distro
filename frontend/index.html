@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Distro — Submission Intelligence</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50:  '#fdf4f4',
+              100: '#fae8e7',
+              200: '#f5d0cd',
+              300: '#ecaaa4',
+              400: '#df7a71',
+              500: '#ce5047',
+              600: '#b33a31',
+              700: '#952e27',
+              800: '#7c2a24',
+              900: '#6a2720',
+              950: '#3a1110',
+            },
+            warm: {
+              50:  '#faf8f5',
+              100: '#f2ede6',
+              200: '#e5dcd0',
+              300: '#d3c4b3',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .tab-active { border-bottom: 2px solid #7c2a24; color: #7c2a24; font-weight: 600; }
+    .score-bar { transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+    .card-enter { animation: fadeUp 0.3s ease forwards; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+  </style>
+</head>
+<body class="bg-warm-50 min-h-screen text-gray-900">
+
+  <header class="bg-brand-950 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+    <div class="flex items-center gap-3">
+      <span class="text-xl font-bold text-white tracking-tight">distro</span>
+      <span class="text-xs text-brand-300 font-medium uppercase tracking-widest hidden sm:block">Submission Intelligence</span>
+    </div>
+    <nav class="flex gap-6 text-sm text-brand-300">
+      <button onclick="showTab('submit')" id="tab-submit" class="tab-active pb-1 text-white">Check Fit</button>
+      <button onclick="showTab('network')" id="tab-network" class="pb-1 hover:text-white transition">Market Activity</button>
+    </nav>
+  </header>
+
+  <!-- ── CHECK FIT TAB ── -->
+  <div id="view-submit" class="max-w-6xl mx-auto px-6 py-10">
+
+    <div class="mb-8 max-w-2xl">
+      <h1 class="text-2xl font-bold text-gray-900">Where does this risk fit?</h1>
+      <p class="text-gray-500 mt-1 text-sm leading-relaxed">
+        Paste a submission email or ACORD summary. We'll score it against each carrier's live appetite so you know where to send it before you submit.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-5 gap-8">
+
+      <!-- Left col: input (2/5) -->
+      <div class="col-span-2">
+        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-widest mb-2">Submission</label>
+        <textarea id="submission-text"
+          class="w-full h-64 border border-warm-200 rounded-xl p-4 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand-700 bg-white"
+          placeholder="Paste email or ACORD summary here…"></textarea>
+
+        <div class="flex gap-4 mt-2 mb-4">
+          <button onclick="loadExample()" class="text-xs text-brand-700 hover:underline">Load example</button>
+          <button onclick="clearAll()" class="text-xs text-gray-400 hover:underline">Clear</button>
+        </div>
+
+        <button onclick="analyze()"
+          id="analyze-btn"
+          class="w-full bg-brand-800 text-white font-semibold py-3 rounded-xl hover:bg-brand-900 transition text-sm">
+          Check Carrier Fit
+        </button>
+
+        <div id="loading" class="hidden mt-4 text-center">
+          <div class="inline-flex items-center gap-2 text-sm text-gray-400">
+            <svg class="animate-spin h-4 w-4 text-brand-600" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+            </svg>
+            Parsing submission and scoring carriers…
+          </div>
+        </div>
+        <div id="error-msg" class="hidden mt-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg p-3"></div>
+
+        <!-- Parsed summary (shown after analysis) -->
+        <div id="parsed-card" class="hidden mt-6 bg-white border border-gray-200 rounded-xl p-5">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Parsed Submission</div>
+          <div id="parsed-fields" class="space-y-2 text-sm"></div>
+        </div>
+      </div>
+
+      <!-- Right col: results (3/5) -->
+      <div class="col-span-3">
+
+        <!-- Empty state -->
+        <div id="empty-state" class="flex flex-col items-center justify-center h-full text-center text-gray-400 py-16">
+          <svg class="w-14 h-14 mb-4 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M19 21H5a2 2 0 01-2-2V7l4-4h10l4 4v12a2 2 0 01-2 2z M12 11v6 M9 14h6"/>
+          </svg>
+          <p class="text-sm font-medium text-gray-400">Carrier fit scores will appear here</p>
+          <p class="text-xs text-gray-300 mt-1">Covers 4 MGAs across all major lines</p>
+        </div>
+
+        <!-- Results -->
+        <div id="results-panel" class="hidden space-y-4">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-semibold text-gray-400 uppercase tracking-widest">Carrier Fit Scores</div>
+            <div id="best-match-label" class="text-xs text-brand-700 font-semibold"></div>
+          </div>
+          <div id="carrier-cards"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MARKET ACTIVITY TAB ── -->
+  <div id="view-network" class="hidden max-w-6xl mx-auto px-6 py-10">
+    <div class="mb-8">
+      <h1 class="text-2xl font-bold text-gray-900">Market Activity</h1>
+      <p class="text-gray-500 mt-1 text-sm">Submission volume, hit rates, and premium trends across your agency network.</p>
+    </div>
+
+    <div id="network-loading" class="text-sm text-gray-400 animate-pulse">Loading data…</div>
+
+    <div id="network-content" class="hidden">
+      <div class="grid grid-cols-3 gap-4 mb-8">
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Active Agencies</div>
+          <div id="stat-agencies" class="text-3xl font-bold"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Avg Bind Rate</div>
+          <div id="stat-hitrate" class="text-3xl font-bold"></div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-200 p-5">
+          <div class="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">Avg Premium</div>
+          <div id="stat-premium" class="text-3xl font-bold"></div>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <span class="text-sm font-semibold text-gray-700">Agency Performance</span>
+          <div class="flex gap-3 text-xs text-gray-400">
+            Sort:
+            <button onclick="sortNetwork('total_submissions')" class="sort-btn text-brand-700 font-semibold" data-field="total_submissions">Volume</button>
+            <button onclick="sortNetwork('hit_rate')" class="sort-btn text-gray-400 hover:text-brand-700" data-field="hit_rate">Bind Rate</button>
+            <button onclick="sortNetwork('avg_premium')" class="sort-btn text-gray-400 hover:text-brand-700" data-field="avg_premium">Premium</button>
+          </div>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 text-xs uppercase tracking-wider text-gray-400">
+            <tr>
+              <th class="px-5 py-3 text-left">Agency</th>
+              <th class="px-5 py-3 text-right">Submissions</th>
+              <th class="px-5 py-3 text-right">Bind Rate</th>
+              <th class="px-5 py-3 text-right">Avg Premium</th>
+              <th class="px-5 py-3 text-left">Signal</th>
+            </tr>
+          </thead>
+          <tbody id="agency-table-body" class="divide-y divide-gray-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const EXAMPLE = `From: sarah.jones@horizoninsurance.com
+To: submissions@mga.com
+Subject: New Submission - TechBridge Solutions
+
+Hi,
+
+Please find details for a new submission.
+
+Insured: TechBridge Solutions Inc.
+State: California
+Industry: Technology / Software Development
+Years in Business: 7
+Employees: 85
+
+Coverage Requested:
+- General Liability: $1M / $2M
+- Professional Liability: $1M
+- Estimated Annual Premium: $28,000
+
+Loss History (last 3 years):
+- 1 GL claim in 2022, $8,500 incurred (closed)
+- Prior loss ratio: approx. 0.32
+
+No prior cancellations.
+
+Sarah Jones
+Horizon Insurance Group`;
+
+    let networkData = [];
+    let currentSort = 'total_submissions';
+
+    function showTab(name) {
+      ['submit','network'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.add('hidden');
+        document.getElementById(`tab-${t}`).classList.remove('tab-active', 'text-white');
+        document.getElementById(`tab-${t}`).style.fontWeight = '';
+      });
+      document.getElementById(`view-${name}`).classList.remove('hidden');
+      document.getElementById(`tab-${name}`).classList.add('tab-active', 'text-white');
+      if (name === 'network' && networkData.length === 0) loadNetwork();
+    }
+
+    function loadExample() {
+      document.getElementById('submission-text').value = EXAMPLE;
+    }
+
+    function clearAll() {
+      document.getElementById('submission-text').value = '';
+      document.getElementById('results-panel').classList.add('hidden');
+      document.getElementById('empty-state').classList.remove('hidden');
+      document.getElementById('parsed-card').classList.add('hidden');
+      document.getElementById('error-msg').classList.add('hidden');
+    }
+
+    async function analyze() {
+      const text = document.getElementById('submission-text').value.trim();
+      if (!text) return;
+
+      document.getElementById('loading').classList.remove('hidden');
+      document.getElementById('error-msg').classList.add('hidden');
+      document.getElementById('results-panel').classList.add('hidden');
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('parsed-card').classList.add('hidden');
+      document.getElementById('analyze-btn').disabled = true;
+
+      try {
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text}),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'Unknown error');
+        }
+        const data = await res.json();
+        renderResults(data);
+      } catch (e) {
+        document.getElementById('error-msg').textContent = `Error: ${e.message}`;
+        document.getElementById('error-msg').classList.remove('hidden');
+        document.getElementById('empty-state').classList.remove('hidden');
+      } finally {
+        document.getElementById('loading').classList.add('hidden');
+        document.getElementById('analyze-btn').disabled = false;
+      }
+    }
+
+    function renderResults({ parsed, scores }) {
+      // Parsed fields
+      const fieldMap = {
+        insured_name: 'Insured', class_of_business: 'Line', industry: 'Industry',
+        state: 'State', premium: 'Est. Premium', loss_ratio: 'Loss Ratio',
+        years_in_business: 'Years in Business', prior_claims: 'Prior Claims',
+      };
+      document.getElementById('parsed-fields').innerHTML = Object.entries(fieldMap).map(([k, label]) => {
+        let val = parsed[k];
+        if (k === 'premium') val = '$' + Number(val).toLocaleString(undefined, {maximumFractionDigits: 0});
+        if (k === 'loss_ratio') val = (val * 100).toFixed(0) + '%';
+        if (k === 'class_of_business') val = val.replace(/_/g, ' ');
+        return `<div class="flex justify-between">
+          <span class="text-gray-400">${label}</span>
+          <span class="font-medium text-gray-800 capitalize">${val ?? '—'}</span>
+        </div>`;
+      }).join('');
+      document.getElementById('parsed-card').classList.remove('hidden');
+
+      // Best match label
+      const best = scores[0];
+      document.getElementById('best-match-label').textContent =
+        best.signal === 'strong_fit' ? `Best match: ${best.carrier_name}` : '';
+
+      // Carrier cards
+      document.getElementById('carrier-cards').innerHTML = scores.map((s, i) => {
+        const color = s.score >= 70 ? 'bg-green-500' : s.score >= 45 ? 'bg-amber-400' : 'bg-red-400';
+        const textColor = s.score >= 70 ? 'text-green-700' : s.score >= 45 ? 'text-amber-700' : 'text-red-600';
+        const bgLight = s.score >= 70 ? 'bg-green-50 border-green-200' : s.score >= 45 ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200';
+        const signalLabel = {strong_fit: 'Strong Fit', marginal: 'Marginal', poor_fit: 'Poor Fit'}[s.signal];
+        const delay = i * 80;
+
+        const strengths = s.strengths.map(t =>
+          `<li class="flex items-start gap-1.5"><span class="text-green-500 mt-0.5">✓</span><span>${t}</span></li>`
+        ).join('');
+        const flags = s.flags.map(t =>
+          `<li class="flex items-start gap-1.5"><span class="text-amber-500 mt-0.5">!</span><span>${t}</span></li>`
+        ).join('');
+
+        return `
+        <div class="bg-white border border-gray-200 rounded-xl p-5 card-enter" style="animation-delay:${delay}ms">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <div class="font-semibold text-gray-900">${s.carrier_name}</div>
+              <div class="text-xs text-gray-400 mt-0.5">${s.carrier_tagline}</div>
+            </div>
+            <div class="flex items-start gap-5">
+              <div class="text-right">
+                <div class="text-xs text-gray-400 mb-0.5">Est. Commission</div>
+                <div class="text-lg font-bold text-gray-800">$${s.commission_amount.toLocaleString()}</div>
+                <div class="text-xs text-gray-400">${(s.commission_rate * 100).toFixed(0)}% of premium</div>
+              </div>
+              <div class="text-right">
+                <div class="text-xs text-gray-400 mb-0.5">Fit Score</div>
+                <div class="text-2xl font-bold ${textColor}">${s.score}</div>
+                <div class="text-xs font-semibold ${textColor}">${signalLabel}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="h-1.5 bg-gray-100 rounded-full mb-4">
+            <div class="${color} h-1.5 rounded-full score-bar" style="width:0%" data-width="${s.score}%"></div>
+          </div>
+
+          <p class="text-xs text-gray-500 mb-4 leading-relaxed">${s.summary}</p>
+
+          ${(s.strengths.length || s.flags.length) ? `
+          <div class="grid grid-cols-2 gap-3">
+            ${s.strengths.length ? `
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Strengths</div>
+              <ul class="text-xs text-gray-600 space-y-1">${strengths}</ul>
+            </div>` : '<div></div>'}
+            ${s.flags.length ? `
+            <div>
+              <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Watch For</div>
+              <ul class="text-xs text-gray-600 space-y-1">${flags}</ul>
+            </div>` : ''}
+          </div>` : ''}
+        </div>`;
+      }).join('');
+
+      document.getElementById('results-panel').classList.remove('hidden');
+
+      // Animate score bars after paint
+      requestAnimationFrame(() => {
+        document.querySelectorAll('.score-bar').forEach(el => {
+          el.style.width = el.dataset.width;
+        });
+      });
+    }
+
+    // ── Network tab ──
+    async function loadNetwork() {
+      try {
+        const res = await fetch('/api/network');
+        networkData = await res.json();
+        renderNetwork();
+        document.getElementById('network-loading').classList.add('hidden');
+        document.getElementById('network-content').classList.remove('hidden');
+      } catch (e) {
+        document.getElementById('network-loading').textContent = 'Failed to load data.';
+      }
+    }
+
+    function sortNetwork(field) {
+      currentSort = field;
+      document.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.classList.toggle('text-brand-700', btn.dataset.field === field);
+        btn.classList.toggle('font-semibold', btn.dataset.field === field);
+        btn.classList.toggle('text-gray-400', btn.dataset.field !== field);
+      });
+      renderNetwork();
+    }
+
+    function renderNetwork() {
+      const sorted = [...networkData].sort((a, b) => b[currentSort] - a[currentSort]);
+      const total = networkData.length;
+      const avgHit = (networkData.reduce((s, a) => s + a.hit_rate, 0) / total).toFixed(1);
+      const avgPrem = Math.round(networkData.reduce((s, a) => s + a.avg_premium, 0) / total);
+
+      document.getElementById('stat-agencies').textContent = total;
+      document.getElementById('stat-hitrate').textContent = avgHit + '%';
+      document.getElementById('stat-premium').textContent = '$' + avgPrem.toLocaleString();
+
+      const maxVol = Math.max(...networkData.map(a => a.total_submissions));
+
+      document.getElementById('agency-table-body').innerHTML = sorted.map(a => {
+        const hitColor = a.hit_rate >= 55 ? 'text-green-600' : a.hit_rate >= 40 ? 'text-amber-600' : 'text-red-500';
+        const volPct = Math.round((a.total_submissions / maxVol) * 100);
+        const signal = a.hit_rate >= 55 ? '<span class="text-green-600 font-medium">High quality</span>'
+          : a.total_submissions >= 80 ? '<span class="text-brand-600 font-medium">High volume</span>'
+          : a.hit_rate < 35 ? '<span class="text-red-400">Low fit rate</span>'
+          : '<span class="text-gray-300">—</span>';
+        return `<tr class="hover:bg-gray-50 transition">
+          <td class="px-5 py-3 font-medium">${a.agency}</td>
+          <td class="px-5 py-3 text-right">
+            <div class="flex items-center justify-end gap-2">
+              <div class="h-1.5 w-16 bg-gray-100 rounded-full">
+                <div class="h-1.5 bg-brand-300 rounded-full" style="width:${volPct}%"></div>
+              </div>
+              ${a.total_submissions}
+            </div>
+          </td>
+          <td class="px-5 py-3 text-right font-semibold ${hitColor}">${a.hit_rate}%</td>
+          <td class="px-5 py-3 text-right text-gray-600">$${a.avg_premium.toLocaleString()}</td>
+          <td class="px-5 py-3 text-xs">${signal}</td>
+        </tr>`;
+      }).join('');
+    }
+  </script>
+</body>
+</html>
