@@ -25,6 +25,14 @@ Return ONLY valid JSON with these exact keys:
 If a field cannot be determined from the text, use a sensible default. Never omit a field."""
 
 
+def _clean(raw: str) -> dict:
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    return json.loads(raw.strip())
+
+
 def parse_submission(text: str) -> dict:
     message = client.messages.create(
         model="claude-sonnet-4-6",
@@ -32,10 +40,32 @@ def parse_submission(text: str) -> dict:
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": text}],
     )
-    raw = message.content[0].text.strip()
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-    return json.loads(raw.strip())
+    return _clean(message.content[0].text.strip())
+
+
+def parse_pdf(pdf_bytes: bytes) -> dict:
+    import base64
+    pdf_b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1024,
+        system=SYSTEM_PROMPT,
+        messages=[{
+            "role": "user",
+            "content": [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": pdf_b64,
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": "Extract the insurance submission data from this ACORD form.",
+                },
+            ],
+        }],
+    )
+    return _clean(message.content[0].text.strip())

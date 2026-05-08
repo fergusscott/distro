@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from parser import parse_submission
+from parser import parse_submission, parse_pdf
 from scorer import score_all_carriers, get_agency_stats, train_all
 from carriers import CARRIERS
 from config import get_config, save_config, reset_config
@@ -47,6 +47,19 @@ async def startup():
 @app.get("/api/carriers")
 async def carriers():
     return [{"id": c["id"], "name": c["name"], "tagline": c["tagline"]} for c in CARRIERS.values()]
+
+
+@app.post("/api/upload")
+async def upload(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+    try:
+        pdf_bytes = await file.read()
+        parsed = parse_pdf(pdf_bytes)
+        scores = score_all_carriers(parsed)
+        return {"parsed": parsed, "scores": scores}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/analyze")

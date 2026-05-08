@@ -4,6 +4,7 @@ from data.synthetic import CLASSES_OF_BUSINESS, INDUSTRIES, STATES
 from carriers import CARRIERS
 
 CONFIG_DIR = os.path.join(os.path.dirname(__file__), "data", "configs")
+os.makedirs(CONFIG_DIR, exist_ok=True)
 
 
 def _default_config(carrier_id: str) -> dict:

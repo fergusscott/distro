@@ -3,6 +3,7 @@ import os
 from data.synthetic import CLASSES_OF_BUSINESS, INDUSTRIES
 
 GOALS_DIR = os.path.join(os.path.dirname(__file__), "data", "configs")
+os.makedirs(GOALS_DIR, exist_ok=True)
 
 
 def _default_goals() -> dict:
