@@ -2,7 +2,7 @@ import os
 import json
 import anthropic
 
-client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+client = anthropic.Anthropic()
 
 SYSTEM_PROMPT = """You are an insurance submission parser for an MGA.
 Extract structured risk data from the submission text provided.
