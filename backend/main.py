@@ -44,6 +44,16 @@ async def startup():
     train_all()
 
 
+@app.get("/api/health")
+async def health():
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return {
+        "status": "ok",
+        "api_key_set": bool(key),
+        "api_key_prefix": key[:10] + "..." if key else "NOT SET",
+    }
+
+
 @app.get("/api/carriers")
 async def carriers():
     return [{"id": c["id"], "name": c["name"], "tagline": c["tagline"]} for c in CARRIERS.values()]
