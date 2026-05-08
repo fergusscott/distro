@@ -1,0 +1,30 @@
+{
+  "lines": {
+    "general_liability": "preferred",
+    "commercial_property": "neutral",
+    "professional_liability": "preferred",
+    "workers_comp": "avoid",
+    "commercial_auto": "avoid",
+    "cyber": "preferred",
+    "management_liability": "preferred"
+  },
+  "industries": {
+    "construction": "avoid",
+    "manufacturing": "avoid",
+    "retail": "neutral",
+    "technology": "preferred",
+    "healthcare": "preferred",
+    "hospitality": "avoid",
+    "real_estate": "neutral",
+    "financial_services": "preferred",
+    "transportation": "avoid"
+  },
+  "max_loss_ratio": 0.5,
+  "premium_min": 5000,
+  "premium_max": 250000,
+  "min_years_in_business": 2,
+  "high_risk_states": [
+    "FL",
+    "NY"
+  ]
+}

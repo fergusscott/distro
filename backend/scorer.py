@@ -1,109 +1,98 @@
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.preprocessing import OrdinalEncoder
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import StandardScaler
-import pickle
-import os
-
-from data.synthetic import generate, CLASSES_OF_BUSINESS, INDUSTRIES, STATES
+from data.synthetic import CLASSES_OF_BUSINESS, INDUSTRIES, STATES, generate
 from carriers import CARRIERS
+from config import get_config
 
-CATEGORICAL_FEATURES = ["class_of_business", "industry", "state"]
-NUMERIC_FEATURES = ["premium", "loss_ratio", "years_in_business", "prior_claims", "num_employees"]
-ALL_FEATURES = CATEGORICAL_FEATURES + NUMERIC_FEATURES
+ALL_FEATURES = ["class_of_business", "industry", "state", "premium", "loss_ratio",
+                "years_in_business", "prior_claims", "num_employees"]
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "data")
-
-_model_cache: dict = {}
-
-
-def _model_path(carrier_id: str) -> str:
-    return os.path.join(MODEL_DIR, f"model_{carrier_id}.pkl")
-
-
-def _build_pipeline() -> Pipeline:
-    cat_transformer = OrdinalEncoder(
-        categories=[CLASSES_OF_BUSINESS, INDUSTRIES, STATES],
-        handle_unknown="use_encoded_value",
-        unknown_value=-1,
-    )
-    preprocessor = ColumnTransformer([
-        ("cat", cat_transformer, CATEGORICAL_FEATURES),
-        ("num", StandardScaler(), NUMERIC_FEATURES),
-    ])
-    return Pipeline([
-        ("prep", preprocessor),
-        ("clf", GradientBoostingClassifier(n_estimators=200, max_depth=4, random_state=42)),
-    ])
-
-
-def _train(carrier_id: str) -> Pipeline:
-    appetite = CARRIERS[carrier_id]["appetite"]
-    df = generate(n=3000, seed=hash(carrier_id) % (2**31), appetite=appetite)
-    X, y = df[ALL_FEATURES], df["accepted"]
-    pipeline = _build_pipeline()
-    pipeline.fit(X, y)
-    with open(_model_path(carrier_id), "wb") as f:
-        pickle.dump(pipeline, f)
-    return pipeline
-
-
-def _load(carrier_id: str) -> Pipeline:
-    if carrier_id in _model_cache:
-        return _model_cache[carrier_id]
-    path = _model_path(carrier_id)
-    if os.path.exists(path):
-        with open(path, "rb") as f:
-            pipeline = pickle.load(f)
-    else:
-        pipeline = _train(carrier_id)
-    _model_cache[carrier_id] = pipeline
-    return pipeline
+ALL_STATES = set(STATES)
 
 
 def train_all():
-    for carrier_id in CARRIERS:
-        _train(carrier_id)
+    pass  # config-driven scoring needs no pre-training
 
 
-def _guidance(features: dict, carrier_id: str, score: int) -> dict:
-    appetite = CARRIERS[carrier_id]["appetite"]
+def _raw_score(features: dict, carrier_id: str) -> float:
+    cfg = get_config(carrier_id)
+    prob = 0.50
+
+    line_pref = cfg["lines"].get(features["class_of_business"], "neutral")
+    if line_pref == "preferred":
+        prob += 0.20
+    elif line_pref == "avoid":
+        prob -= 0.30
+
+    ind_pref = cfg["industries"].get(features["industry"], "neutral")
+    if ind_pref == "preferred":
+        prob += 0.22
+    elif ind_pref == "avoid":
+        prob -= 0.32
+
+    if features["loss_ratio"] > cfg["max_loss_ratio"]:
+        prob -= 0.28
+    elif features["loss_ratio"] < 0.30:
+        prob += 0.10
+
+    lo, hi = cfg["premium_min"], cfg["premium_max"]
+    if lo <= features["premium"] <= hi:
+        prob += 0.12
+    elif features["premium"] > hi * 2:
+        prob -= 0.18
+
+    if features["years_in_business"] < cfg["min_years_in_business"]:
+        prob -= 0.20
+    elif features["years_in_business"] > 10:
+        prob += 0.08
+
+    if features["prior_claims"] > 3:
+        prob -= 0.22
+    elif features["prior_claims"] == 0:
+        prob += 0.08
+
+    if features["state"] in cfg.get("high_risk_states", []):
+        prob -= 0.10
+
+    return float(np.clip(prob, 0.05, 0.95))
+
+
+def _guidance(features: dict, carrier_id: str) -> dict:
+    cfg = get_config(carrier_id)
     strengths, flags = [], []
 
     cob = features["class_of_business"]
-    if cob in appetite.get("preferred_lines", []):
-        strengths.append(f"{cob.replace('_', ' ').title()} is a core line for this carrier")
-    elif cob in appetite.get("avoid_lines", []):
-        flags.append(f"{cob.replace('_', ' ').title()} is outside their primary appetite")
+    line_pref = cfg["lines"].get(cob, "neutral")
+    if line_pref == "preferred":
+        strengths.append(f"{cob.replace('_', ' ').title()} is a preferred line for this carrier")
+    elif line_pref == "avoid":
+        flags.append(f"{cob.replace('_', ' ').title()} is outside their current appetite")
 
-    industry = features["industry"]
-    if industry in appetite.get("preferred_industries", []):
-        strengths.append(f"{industry.title()} is a preferred industry class")
-    elif industry in appetite.get("avoid_industries", []):
-        flags.append(f"{industry.title()} industry is generally avoided by this carrier")
+    ind = features["industry"]
+    ind_pref = cfg["industries"].get(ind, "neutral")
+    if ind_pref == "preferred":
+        strengths.append(f"{ind.title()} is a target industry class")
+    elif ind_pref == "avoid":
+        flags.append(f"{ind.title()} industry is currently avoided by this carrier")
 
     lr = features["loss_ratio"]
-    max_lr = appetite.get("max_loss_ratio", 0.6)
-    if lr > max_lr:
-        flags.append(f"Loss ratio ({lr:.0%}) exceeds their {max_lr:.0%} threshold — expect scrutiny")
-    elif lr < 0.3:
+    if lr > cfg["max_loss_ratio"]:
+        flags.append(f"Loss ratio ({lr:.0%}) exceeds their {cfg['max_loss_ratio']:.0%} threshold")
+    elif lr < 0.30:
         strengths.append(f"Clean loss history ({lr:.0%}) is well below their threshold")
 
-    lo, hi = appetite.get("preferred_premium_range", (0, 999999))
+    lo, hi = cfg["premium_min"], cfg["premium_max"]
     premium = features["premium"]
     if lo <= premium <= hi:
-        strengths.append(f"Premium size (${premium:,.0f}) fits squarely in their target range")
+        strengths.append(f"Premium (${premium:,.0f}) fits their target range")
     elif premium > hi:
-        flags.append(f"Premium (${premium:,.0f}) exceeds their typical sweet spot (up to ${hi:,})")
+        flags.append(f"Premium (${premium:,.0f}) is above their sweet spot (up to ${hi:,})")
 
-    if features["state"] in appetite.get("high_risk_states", set()):
+    if features["state"] in cfg.get("high_risk_states", []):
         flags.append(f"{features['state']} is a higher-scrutiny state for this carrier")
 
     yib = features["years_in_business"]
-    min_yib = appetite.get("min_years_in_business", 1)
+    min_yib = cfg["min_years_in_business"]
     if yib < min_yib:
         flags.append(f"Only {yib} year(s) in business — carrier prefers at least {min_yib}")
     elif yib > 10:
@@ -119,31 +108,23 @@ def _guidance(features: dict, carrier_id: str, score: int) -> dict:
 
 def _commission(features: dict, carrier_id: str) -> dict:
     carrier = CARRIERS[carrier_id]
-    rate = carrier["commission_rates"].get(
-        features["class_of_business"], carrier["base_commission"]
-    )
-    amount = round(features["premium"] * rate)
-    return {"rate": rate, "amount": amount}
+    rate = carrier["commission_rates"].get(features["class_of_business"], carrier["base_commission"])
+    return {"rate": rate, "amount": round(features["premium"] * rate)}
 
 
 def score_for_carrier(features: dict, carrier_id: str) -> dict:
-    pipeline = _load(carrier_id)
-    row = pd.DataFrame([{k: features[k] for k in ALL_FEATURES}])
-    prob = float(pipeline.predict_proba(row)[0][1])
+    prob = _raw_score(features, carrier_id)
     score = round(prob * 100)
-
     carrier = CARRIERS[carrier_id]
-    if score >= 70:
-        signal = "strong_fit"
-        summary = f"This risk is a strong fit for {carrier['name']}'s appetite."
-    elif score >= 45:
-        signal = "marginal"
-        summary = f"This risk is in range for {carrier['name']} but may require additional underwriting support."
-    else:
-        signal = "poor_fit"
-        summary = f"This risk falls outside {carrier['name']}'s current appetite in several key areas."
 
-    guidance = _guidance(features, carrier_id, score)
+    if score >= 70:
+        signal, summary = "strong_fit", f"This risk is a strong fit for {carrier['name']}'s appetite."
+    elif score >= 45:
+        signal, summary = "marginal", f"This risk is in range for {carrier['name']} but may need additional support."
+    else:
+        signal, summary = "poor_fit", f"This risk falls outside {carrier['name']}'s current appetite."
+
+    guidance = _guidance(features, carrier_id)
     commission = _commission(features, carrier_id)
 
     return {
@@ -161,14 +142,15 @@ def score_for_carrier(features: dict, carrier_id: str) -> dict:
 
 
 def score_all_carriers(features: dict) -> list[dict]:
-    results = [score_for_carrier(features, cid) for cid in CARRIERS]
-    return sorted(results, key=lambda x: -x["score"])
+    return sorted(
+        [score_for_carrier(features, cid) for cid in CARRIERS],
+        key=lambda x: -x["score"]
+    )
 
 
 def get_agency_stats() -> list[dict]:
-    from data.synthetic import generate as gen
     appetite = list(CARRIERS.values())[0]["appetite"]
-    df = gen(n=3000, seed=99, appetite=appetite)
+    df = generate(n=3000, seed=99, appetite=appetite)
     stats = (
         df.groupby("agency")
         .agg(total_submissions=("accepted", "count"), accepted=("accepted", "sum"), avg_premium=("premium", "mean"))

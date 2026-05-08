@@ -1,0 +1,10 @@
+{
+  "line_targets": {
+    "general_liability": 25,
+    "professional_liability": 72,
+    "cyber": 35
+  },
+  "industry_targets": {},
+  "target_bind_rate": 0,
+  "target_premium_volume": 0
+}
