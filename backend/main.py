@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from typing import Any
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=False)  # don't override env vars already set by the host
 
 from parser import parse_submission, parse_pdf
 from scorer import score_all_carriers, get_agency_stats, train_all
